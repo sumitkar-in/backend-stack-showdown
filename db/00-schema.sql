@@ -1,0 +1,15 @@
+CREATE EXTENSION IF NOT EXISTS pg_stat_statements;
+
+CREATE TABLE devices (
+    id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    name VARCHAR(64) NOT NULL UNIQUE,
+    location VARCHAR(64) NOT NULL
+);
+
+CREATE TABLE readings (
+    id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    device_id INTEGER NOT NULL REFERENCES devices(id),
+    temperature_centi SMALLINT NOT NULL CHECK (temperature_centi BETWEEN -5000 AND 10000),
+    humidity_bp SMALLINT NOT NULL CHECK (humidity_bp BETWEEN 0 AND 10000),
+    observed_at TIMESTAMPTZ(3) NOT NULL
+);

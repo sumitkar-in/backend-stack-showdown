@@ -1,0 +1,63 @@
+# ---- secrets / local config (keep .env.example) ----
+.env
+.env.*
+!.env.example
+
+# ---- benchmark output (generated; keep results/README.md) ----
+results/*
+!results/README.md
+*.dump
+
+# ---- OS / editors / tools ----
+.DS_Store
+.idea/
+.vscode/
+*.swp
+.qodo/
+.claude/
+
+# ---- backups and temp files ----
+*.orig
+*.bak
+*.new
+*.tmp
+*.log
+
+# ---- Node / NestJS (apps/nest) ----
+node_modules/
+dist/
+*.tsbuildinfo
+npm-debug.log*
+
+# ---- Python / FastAPI (apps/fastapi) ----
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# ---- Rust (apps/rust) ----
+target/
+
+# ---- Go (apps/go) ----
+/apps/go/bin/
+*.test
+*.out
+
+# ---- Java / Spring (apps/spring) ----
+.gradle/
+build/
+!**/src/**/build/
+*.class
+*.jar
+*.war
+.classpath
+.project
+.settings/
+*.iml
+
+# Lockfiles ARE committed on purpose: Cargo.lock, go.sum, package-lock.json
+sensorpulse-linkedin-series.md
+/apps/laravel/vendor

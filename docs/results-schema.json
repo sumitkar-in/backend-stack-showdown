@@ -1,0 +1,44 @@
+{
+  "runId": "go-pk-rep1",
+  "stack": "go-gin-pgxpool",
+  "workload": "pk",
+  "database": "postgresql-17",
+  "seedRowsStart": 1000000,
+  "seedRowsEnd": 1000000,
+  "virtualUsers": 100,
+  "durationSeconds": 120,
+  "warmupSeconds": 30,
+  "appCpuLimit": 2,
+  "appMemoryLimitMiB": 1024,
+  "dbCpuLimit": 2,
+  "dbMemoryLimitMiB": 2048,
+  "dbPoolTotal": 20,
+  "http": {
+    "requestsPerSecond": null,
+    "successfulRequestsPerSecond": null,
+    "latencyP50Ms": null,
+    "latencyP95Ms": null,
+    "latencyP99Ms": null,
+    "errorRate": null
+  },
+  "resources": {
+    "appCpuMeanCores": null,
+    "appCpuThrottleSeconds": null,
+    "appMemoryPeakMiB": null,
+    "dbCpuMeanCores": null,
+    "dbMemoryPeakMiB": null
+  },
+  "reproducibility": {
+    "gitCommit": null,
+    "cpuModel": null,
+    "architecture": null,
+    "dockerEngineVersion": null,
+    "appImageDigest": null,
+    "postgresImageDigest": null,
+    "k6ImageDigest": null,
+    "databaseSnapshotSha256": null,
+    "testScriptSha256": null,
+    "runtimeVersion": null,
+    "dbDriverVersion": null
+  }
+}

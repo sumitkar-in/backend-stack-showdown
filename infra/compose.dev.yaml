@@ -1,0 +1,10 @@
+# Optional: publish app on host for curl/manual probes. Never use during measured runs.
+services:
+  app-go:      { ports: ['127.0.0.1:8080:8080'] }
+  app-spring:  { ports: ['127.0.0.1:8080:8080'] }
+  app-nest:    { ports: ['127.0.0.1:8080:8080'] }
+  app-fastapi: { ports: ['127.0.0.1:8080:8080'] }
+  app-rust:    { ports: ['127.0.0.1:8080:8080'] }
+  app-laravel: { ports: ['127.0.0.1:8080:8080'] }
+  app-octane:  { ports: ['127.0.0.1:8080:8080'] }
+  app-graalvm: { ports: ['127.0.0.1:8080:8080'] }

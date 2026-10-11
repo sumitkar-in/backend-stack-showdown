@@ -1,0 +1,4 @@
+vendor
+storage/logs/*
+bootstrap/cache/*.php
+README.md

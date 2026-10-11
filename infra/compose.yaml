@@ -1,0 +1,149 @@
+# Everything runs in Docker: db, seven apps (one at a time), k6, db tools, stats sampler, orchestrator.
+# Apps need apps/<stack>/Dockerfile before their profile works.
+name: sensorpulse-bench
+
+x-limits: &limits
+  platform: ${PLATFORM:-linux/amd64}
+  cpus: 2.0
+  mem_limit: 4g
+  memswap_limit: 4g
+  pids_limit: 1024
+  init: true
+  stop_grace_period: 15s
+  restart: "no"
+  ulimits: { nofile: { soft: 65536, hard: 65536 } }
+
+x-app-env: &app-env
+  TZ: Asia/Kolkata
+  PORT: '8080'
+  DB_HOST: postgres
+  DB_PORT: '5432'
+  DB_NAME: sensorpulse
+  DB_USER: bench
+  DB_PASSWORD: bench_local_only
+  DB_POOL_TOTAL: '20'
+  AUTH_MODE: ${AUTH_MODE:-none}              # none | jwt (HS256 bearer token on /readings/**)
+  JWT_SECRET: ${JWT_SECRET:-bench-jwt-secret-local-only}
+
+x-app: &app
+  <<: *limits
+  environment: *app-env
+  depends_on:
+    postgres: { condition: service_healthy }
+  networks:
+    bench: { aliases: [app] }   # k6 always uses http://app:8080
+
+services:
+  postgres:
+    image: ${POSTGRES_IMAGE:-postgres:17}
+    platform: ${PLATFORM:-linux/amd64}
+    cpus: 2.0
+    mem_limit: 2g
+    memswap_limit: 2g
+    shm_size: 256m
+    restart: "no"
+    environment:
+      POSTGRES_DB: sensorpulse
+      POSTGRES_USER: bench
+      POSTGRES_PASSWORD: bench_local_only
+      TZ: Asia/Kolkata
+    command: >
+      postgres -c timezone=Asia/Kolkata -c log_timezone=Asia/Kolkata -c shared_buffers=512MB -c effective_cache_size=1536MB
+      -c max_connections=100 -c work_mem=4MB -c maintenance_work_mem=128MB
+      -c max_wal_size=4GB -c checkpoint_timeout=15min
+      -c shared_preload_libraries=pg_stat_statements
+      -c pg_stat_statements.track=top -c track_io_timing=on
+      -c log_min_messages=error
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ../db:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      # TCP check: init-time temp server is socket-only, so green means seed finished.
+      test: ['CMD-SHELL', 'pg_isready -h 127.0.0.1 -U bench -d sensorpulse']
+      interval: 5s
+      timeout: 3s
+      retries: 120
+    networks: [bench]
+
+  app-go:
+    <<: *app
+    profiles: [go]
+    build: ../apps/go
+    environment: { <<: *app-env, GOMAXPROCS: '2', GOMEMLIMIT: 3GiB, GIN_MODE: release }
+
+  app-spring:
+    <<: *app
+    profiles: [spring]
+    build: ../apps/spring
+    environment: { <<: *app-env, JAVA_TOOL_OPTIONS: '${SPRING_JAVA_OPTS:--XX:MaxRAMPercentage=65.0 -XX:ActiveProcessorCount=2}' }
+
+  app-graalvm:
+    <<: *app
+    profiles: [graalvm]
+    build: ../apps/spring-with-graalvm
+    environment: { <<: *app-env, NATIVE_OPTS: '-Xmx2600m' }   # native image: no JVM, JAVA_TOOL_OPTIONS is ignored
+
+  app-nest:
+    <<: *app
+    profiles: [nest]
+    build: ../apps/nest
+    environment: { <<: *app-env, DB_POOL_PER_WORKER: '10', APP_WORKERS: '2', NODE_ENV: production }
+
+  app-fastapi:
+    <<: *app
+    profiles: [fastapi]
+    build: ../apps/fastapi
+    environment: { <<: *app-env, DB_POOL_PER_WORKER: '10', APP_WORKERS: '2' }
+
+  app-laravel:
+    <<: *app
+    profiles: [laravel]
+    build: ../apps/laravel
+    environment: { <<: *app-env, PHP_FPM_CHILDREN: '20' }   # static workers == DB connection budget
+
+  app-octane:
+    <<: *app
+    profiles: [octane]
+    build: ../apps/laravel-octane
+    environment: { <<: *app-env, OCTANE_WORKERS: '${OCTANE_WORKERS:-4}' }   # Swoole workers, each holding one DB connection (<= 20 budget)
+
+  app-rust:
+    <<: *app
+    profiles: [rust]
+    build: ../apps/rust
+    environment: { <<: *app-env, TOKIO_WORKER_THREADS: '2' }
+
+  k6:
+    image: ${K6_IMAGE:-grafana/k6:latest}   # pin digest in .env for real runs
+    platform: ${PLATFORM:-linux/amd64}
+    profiles: [tools]
+    cpus: ${K6_CPUS:-4.0}
+    mem_limit: ${K6_MEM:-2g}
+    entrypoint: ['k6']
+    volumes: ['../k6:/scripts:ro', '../results:/results']
+    networks: [bench]
+
+  # psql / pg_dump / restore, same image as server
+  dbtools:
+    image: ${POSTGRES_IMAGE:-postgres:17}
+    profiles: [tools]
+    entrypoint: ['bash']
+    environment: { PGHOST: postgres, PGUSER: bench, PGPASSWORD: bench_local_only, PGDATABASE: sensorpulse }
+    volumes: ['../scripts:/scripts:ro', '../db:/db:ro', '../results:/results']
+    networks: [bench]
+
+  # whole orchestrator inside Docker: drives compose via host socket, project mounted at same path
+  runner:
+    image: docker:27-cli
+    profiles: [runner]
+    entrypoint: ['sh', '-c', 'apk add --no-cache bash coreutils >/dev/null && exec bash "$$@"', '--']
+    working_dir: ${PROJECT_DIR:-/work}
+    environment: { PROJECT_DIR: '${PROJECT_DIR:-/work}' }
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ${PROJECT_DIR:-.}:${PROJECT_DIR:-/work}
+
+volumes:
+  pgdata: {}
+networks:
+  bench: {}
