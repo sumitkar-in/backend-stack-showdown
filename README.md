@@ -275,6 +275,37 @@ Deliberate choices worth knowing:
 - **Spring Boot Native** (`apps/spring-with-graalvm`) is the same app compiled ahead of time with `native-maven-plugin` (`-O2`, Serial GC; the community build has no G1 and no PGO). Native images ignore `JAVA_TOOL_OPTIONS`, so compose passes `NATIVE_OPTS=-Xmx2600m`. Spring AOT resolves `@ConditionalOnProperty` at build time, so the JWT interceptor is registered unconditionally and enabled at runtime, and the model records are registered for reflection because `Json.respond()` serializes them with a plain `ObjectMapper`. First build takes several minutes and about 6 GiB of RAM.
 - **Dependencies are pinned**: `Cargo.lock`, `go.sum`, `package-lock.json`, `composer.lock` are committed; Python and Maven versions are pinned in `requirements.txt` / `pom.xml`.
 
+### Runtime setup: Java and Rust in detail
+
+**Spring Boot (JVM) - `apps/spring`**
+
+| Setting | Value |
+| --- | --- |
+| Java | **21** (LTS), Eclipse Temurin JRE (`eclipse-temurin:21-jre`; `21.0.12.1` in the measured build, since the tag floats with patch releases) |
+| Spring Boot | 3.4.1 (`spring-boot-starter-parent`), Spring MVC on embedded Tomcat |
+| Threading model | **Platform threads, not virtual threads.** Tomcat runs a pool of up to **200 platform request threads** (`server.tomcat.threads.max=200`); `spring.threads.virtual.enabled` is not set, so it stays `false`. One request occupies one thread for its whole life, including the blocking JDBC call. |
+| Database access | Blocking JDBC (`JdbcTemplate`) on **HikariCP, 20 connections** (min = max, opened at startup). With 200 request threads and 20 connections, up to 180 threads can wait for a connection under load. |
+| GC | **G1** (the ergonomic default on 2 CPUs: `ParallelGCThreads=2`, `ConcGCThreads=1`) |
+| JVM flags | `-XX:MaxRAMPercentage=65.0 -XX:ActiveProcessorCount=2` (via `JAVA_TOOL_OPTIONS` in compose) and `-Xss512k` (thread stack size) |
+| Memory | container limit 4 GiB, so the heap ceiling is about 2.6 GiB; measured peak about 840 MiB |
+| JIT | default tiered C1/C2; the 10 s warm-up is short for a JIT, which favours the other runtimes slightly |
+
+Virtual threads were **not** used. They would remove the 200-thread cap and make blocked threads cheap, but the 20-connection database budget and the fixed 2-vCPU quota are the real limits here, so the expected gain is small; it has not been measured. To try it, set `spring.threads.virtual.enabled=true` in `apps/spring/src/main/resources/application.properties` and rerun `STACKS=spring scripts/run-benchmark.sh`. The GraalVM variant uses the same threading model (platform threads).
+
+**Rust - `apps/rust`**
+
+| Setting | Value |
+| --- | --- |
+| Rust | **1.98.0** (`rust:1.98.0-slim`), edition 2021, `--locked` builds from `Cargo.lock` |
+| HTTP | **Axum 0.8.1** on Hyper, **HTTP/1.1 only** (`http1` feature), `TCP_NODELAY` on |
+| Runtime and threading | **Tokio 1.42.0 multi-threaded runtime with 2 worker threads** (`TOKIO_WORKER_THREADS=2`, matching the 2 vCPU quota). Requests are async tasks scheduled over those 2 OS threads, **not one thread per request**; no `spawn_blocking` on the hot path. |
+| Database access | **SQLx 0.8.3** (async, Tokio) with a **20-connection** pool (min = max, all opened at startup), statement cache on, `test_before_acquire(false)` (see [section 13](#13-bugs-found-while-building-this-and-fixed)) |
+| JSON | `serde_json` on fixed structs; request bodies validated by hand |
+| Build profile | `opt-level = 3`, **fat LTO**, `codegen-units = 1`, `panic = "abort"`, symbols stripped. No `-C target-cpu=native`, so the binary is portable. |
+| Image | `gcr.io/distroless/cc-debian12:nonroot` (dynamic glibc), peak memory about 8 MiB |
+
+Both are blocking-vs-async by design: the JVM variant is thread-per-request over blocking JDBC, the Rust variant is a small fixed set of threads multiplexing many async tasks, which is a large part of why Rust uses 100x less memory at similar throughput on the database-bound workloads.
+
 Each `apps/<stack>/README.md` has the stack-specific details.
 
 ---
